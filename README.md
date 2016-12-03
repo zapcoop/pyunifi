@@ -1,10 +1,8 @@
-# This project is not actively maintained
+# This project is not well maintained
 
 Issues and pull requests on this repository may not be acted on in a timely
 manner, or at all.  You are of course welcome to use it anyway. You are even
 more welcome to fork it and maintain the results.
-
-![Unmaintained](https://nym.se/img/unmaintained.jpg)
 
 unifi-api
 =========
@@ -12,11 +10,12 @@ unifi-api
 ---
 
 A rewrite of https://github.com/unifi-hackers/unifi-lab in cleaner Python.
+Forked from https://github.com/calmh/unifi-api due to unmaintained status.
 
 Install
 -------
 
-    sudo pip install -U unifi
+    sudo pip install -U pyunifi
 
 Utilities
 ---------
@@ -130,9 +129,9 @@ Create a Controller object.
  - `host`		-- the address of the controller host; IP or name
  - `username`	-- the username to log in with
  - `password`	-- the password to log in with
- -  `port`		-- the port of the controller host
- -  `version`	-- the base version of the controller API [v2|v3]
- -  `site_id`	-- the site ID to connect to (UniFi >= 3.x)
+ - `port`		-- the port of the controller host
+ - `version`	-- the base version of the controller API [v2|v3]
+ - `site_id`	-- the site ID to connect to (UniFi >= 3.x)
 
 ### `block_client(self, mac)`
 
