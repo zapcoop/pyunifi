@@ -208,8 +208,16 @@ class Controller:
 
     def get_clients(self):
         """Return a list of all active clients, with significant information about each."""
-
-        return self._read(self.api_url + 'stat/sta')
+        try:
+            return self._read(self.api_url + 'stat/sta')
+        except urllib.error.HTTPError as err:
+            if err.code == 401:
+                try:
+                    self._login('v4')
+                except urllib.error.HTTPError as err2:
+                    log.debug('Failed to scan client(s) -> auth issues: %s', err2)
+            else:
+                log.debug('Failed to scan client(s): %s', err)
 
     def get_users(self):
         """Return a list of all known clients, with significant information about each."""
