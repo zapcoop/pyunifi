@@ -1,45 +1,16 @@
-
-try:
-    # Ugly hack to force SSLv3 and avoid
-    # urllib2.URLError: <urlopen error [Errno 1] _ssl.c:504:
-    # error:14077438:SSL routines:SSL23_GET_SERVER_HELLO:tlsv1 alert internal error>
-    import _ssl
-    _ssl.PROTOCOL_SSLv23 = _ssl.PROTOCOL_TLSv1
-except:
-    pass
-
-try:
-    # Updated for python certificate validation
-    import ssl
-    ssl._create_default_https_context = ssl._create_unverified_context
-except:
-    pass
-
-import sys
-PYTHON_VERSION = sys.version_info[0]
-
-if PYTHON_VERSION == 2:
-    import cookielib
-    import urllib2
-elif PYTHON_VERSION == 3:
-    import http.cookiejar as cookielib
-    import urllib3
-    import ast
-
 import json
 import logging
 from time import time
-import urllib
+import requests
 
 
 log = logging.getLogger(__name__)
-
 
 class APIError(Exception):
     pass
 
 
-class Controller:
+class Controller(object):
 
     """Interact with a UniFi controller.
 
@@ -59,7 +30,7 @@ class Controller:
 
     """
 
-    def __init__(self, host, username, password, port=8443, version='v2', site_id='default'):
+    def __init__(self, host, username, password, port=8443, version='v5', site_id='default', ssl_verify=True):
         """Create a Controller object.
 
         Arguments:
@@ -69,7 +40,8 @@ class Controller:
             port     -- the port of the controller host
             version  -- the base version of the controller API [v2|v3|v4|v5]
             site_id  -- the site ID to connect to (UniFi >= 3.x)
-
+            ssl_verify -- Verify the controllers SSL certificate.  default=True, can also be False or "path/to/custom_cert.pem
+"
         """
 
         self.host = host
@@ -81,23 +53,22 @@ class Controller:
         self.url = 'https://' + host + ':' + str(port) + '/'
         self.api_url = self.url + self._construct_api_path(version)
 
+        self.ssl_verify = ssl_verify
+        # Disable the console warnings about an insecure connection
+        if ssl_verify == False:
+            requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+
+        self.session = requests.Session()
+        self.session.verify = ssl_verify
+
         log.debug('Controller for %s', self.url)
-
-        cj = cookielib.CookieJar()
-        if PYTHON_VERSION == 2:
-            self.opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
-        elif PYTHON_VERSION == 3:
-            self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-
         self._login(version)
 
     def __del__(self):
-        if self.opener != None:
+        if self.session != None:
             self._logout()
 
     def _jsondec(self, data):
-        if PYTHON_VERSION == 3:
-            data = data.decode()
         obj = json.loads(data)
         if 'meta' in obj:
             if obj['meta']['rc'] != 'ok':
@@ -107,18 +78,12 @@ class Controller:
         return obj
 
     def _read(self, url, params=None):
-        if PYTHON_VERSION == 3:
-            if params is not None:
-                params = ast.literal_eval(params)
-                #print (params)
-                params = urllib.parse.urlencode(params)
-                params = params.encode('utf-8')
-                res = self.opener.open(url, params)
-            else:
-                res = self.opener.open(url)
-        elif PYTHON_VERSION == 2:
-            res = self.opener.open(url, params)
-        return self._jsondec(res.read())
+        r = self.session.get(url, params=params)
+        return self._jsondec(r.text)
+
+    def _write(self, url, json=None):
+        r = self.session.post(url, json=json)
+        return self._jsondec(r.text)
 
     def _construct_api_path(self, version):
         """Returns valid base API path based on version given
@@ -150,24 +115,23 @@ class Controller:
 
         if version == 'v4' or version == 'v5':
             login_url += 'api/login'
-            params = json.dumps(params)
+            # XXX Why doesn't passing in the dict work?
+            params = "{'username':'" + self.username + "', 'password':'" + self.password + "'}"
         else:
             login_url += 'login'
             params.update({'login': 'login'})
-            if PYTHON_VERSION is 2:
-                params = urllib.urlencode(params)
-            elif PYTHON_VERSION is 3:
-                params = urllib.parse.urlencode(params)
 
-        if PYTHON_VERSION is 3:
-            params = params.encode("UTF-8")
+        r = self.session.post(login_url, params)
 
-        self.opener.open(login_url, params).read()
+        if r.status_code != 200:
+            errorstr = "Failed to login: %d %s" % (r.status_code, r.reason) 
+            errorstr += '\n' + r.raw.read()
+            log.error(errorstr)
+            raise APIError(errorstr)
 
     def _logout(self):
         log.debug('logout()')
-
-        self.opener.open(self.url + 'logout').read()
+        self._write(self.url + 'logout')
 
     def get_alerts(self):
         """Return a list of all Alerts."""
@@ -189,10 +153,10 @@ class Controller:
     def get_statistics_24h(self, endtime):
         """Return statistical data last 24h from time"""
 
-        js = json.dumps(
-            {'attrs': ["bytes", "num_sta", "time"], 'start': int(endtime - 86400) * 1000, 'end': int(endtime - 3600) * 1000})
-        params = urllib.urlencode({'json': js})
-        return self._read(self.api_url + 'stat/report/hourly.system', params)
+        js = { 'attrs': ["bytes", "num_sta", "time"], 
+               'start': int(endtime - 86400) * 1000,
+               'end': int(endtime - 3600) * 1000 }
+        return self._write(self.api_url + 'stat/report/hourly.site', params)
 
     def get_events(self):
         """Return a list of all Events."""
@@ -203,34 +167,18 @@ class Controller:
         """Return a list of all AP:s, with significant information about each."""
 
         #Set test to 0 instead of NULL
-        params = json.dumps({'_depth': 2, 'test': 0})
+        params = {'_depth': 2, 'test': 0}
         return self._read(self.api_url + 'stat/device', params)
 
     def get_client(self, mac):
         """Get details about a specific client"""
-        try:
-            return self._read(self.api_url + 'stat/sta/' + mac)[0]
-        except urllib.error.HTTPError as err:
-            if err.code == 401:
-                try:
-                    self._login('v4')
-                except urllib.error.HTTPError as err2:
-                    log.debug('Failed to scan client(s) -> auth issues: %s', err2)
-            else:
-                log.debug('Failed to scan client(s): %s', err)
+
+        return self._read(self.api_url + 'stat/sta/' + mac)[0]
 
     def get_clients(self):
         """Return a list of all active clients, with significant information about each."""
-        try:
-            return self._read(self.api_url + 'stat/sta')
-        except urllib.error.HTTPError as err:
-            if err.code == 401:
-                try:
-                    self._login('v4')
-                except urllib.error.HTTPError as err2:
-                    log.debug('Failed to scan client(s) -> auth issues: %s', err2)
-            else:
-                log.debug('Failed to scan client(s): %s', err)
+
+        return self._read(self.api_url + 'stat/sta')
 
     def get_users(self):
         """Return a list of all known clients, with significant information about each."""
@@ -250,15 +198,12 @@ class Controller:
     def _run_command(self, command, params={}, mgr='stamgr'):
         log.debug('_run_command(%s)', command)
         params.update({'cmd': command})
-        if PYTHON_VERSION == 2:
-            return self._read(self.api_url + 'cmd/' + mgr, urllib.urlencode({'json': json.dumps(params)}))
-        elif PYTHON_VERSION == 3:
-            return self._read(self.api_url + 'cmd/' + mgr, urllib.parse.urlencode({'json': json.dumps(params)}))
+        return self._write(self.api_url + 'cmd/' + mgr, json=params)
 
     def _mac_cmd(self, target_mac, command, mgr='stamgr'):
         log.debug('_mac_cmd(%s, %s)', target_mac, command)
         params = {'mac': target_mac}
-        self._run_command(command, params, mgr)
+        return self._run_command(command, params, mgr)
 
     def block_client(self, mac):
         """Add a client to the block list.
@@ -320,9 +265,8 @@ class Controller:
     def archive_all_alerts(self):
         """Archive all Alerts
         """
-        js = json.dumps({'cmd': 'archive-all-alarms'})
-        params = urllib.urlencode({'json': js})
-        answer = self._read(self.api_url + 'cmd/evtmgr', params)
+        js = {'cmd': 'archive-all-alarms'}
+        answer = self._read(self.api_url + 'cmd/evtmgr', json=js)
 
     def create_backup(self):
         """Ask controller to create a backup archive file, response contains the path to the backup file.
@@ -331,26 +275,26 @@ class Controller:
                  render it partially unresponsive for other requests.
         """
 
-        js = json.dumps({'cmd': 'backup'})
-        params = urllib.urlencode({'json': js})
-        answer = self._read(self.api_url + 'cmd/system', params)
+        js = {'cmd': 'backup'}
+        r = self.session.post(self.api_url + 'cmd/system', json=js)
 
-        return answer[0].get('url')
+        data = self._jsondec(r.text)
+        return data[0]['url']
 
-    def get_backup(self, target_file='unifi-backup.unf'):
+    def get_backup(self, download_path=None, target_file='unifi-backup.unf'):
         """Get a backup archive from a controller.
 
         Arguments:
             target_file -- Filename or full path to download the backup archive to, should have .unf extension for restore.
 
         """
-        download_path = self.create_backup()
+        if not download_path:
+            download_path = self.create_backup()
 
-        opener = self.opener.open(self.url + download_path)
-        unifi_archive = opener.read()
+        r = self.session.get(self.url + download_path)
 
         backupfile = open(target_file, 'w')
-        backupfile.write(unifi_archive)
+        backupfile.write(str(r.content))
         backupfile.close()
 
     def authorize_guest(self, guest_mac, minutes, up_bandwidth=None, down_bandwidth=None, byte_quota=None, ap_mac=None):
