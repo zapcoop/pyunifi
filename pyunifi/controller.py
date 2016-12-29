@@ -38,8 +38,8 @@ class Controller(object):
             username -- the username to log in with
             password -- the password to log in with
             port     -- the port of the controller host
-            version  -- the base version of the controller API [v2|v3|v4|v5]
-            site_id  -- the site ID to connect to (UniFi >= 3.x)
+            version  -- the base version of the controller API [v4|v5]
+            site_id  -- the site ID to connect to
             ssl_verify -- Verify the controllers SSL certificate.  default=True, can also be False or "path/to/custom_cert.pem
 "
         """
@@ -97,15 +97,15 @@ class Controller(object):
         V3_PATH = 'api/s/' + self.site_id + '/'
 
         if(version == 'v2'):
-            return V2_PATH
+            raise APIError("v2 controllers no longer supported")
         if(version == 'v3'):
-            return V3_PATH
+            raise APIError("v3 controllers no longer supported")
         if(version == 'v4'):
             return V3_PATH
         if(version == 'v5'):
             return V3_PATH
         else:
-            return V2_PATH
+            raise APIError("Unknown controller version:", version)
 
     def _login(self, version):
         log.debug('login() as %s', self.username)
@@ -118,8 +118,7 @@ class Controller(object):
             # XXX Why doesn't passing in the dict work?
             params = "{'username':'" + self.username + "', 'password':'" + self.password + "'}"
         else:
-            login_url += 'login'
-            params.update({'login': 'login'})
+            raise APIError("Unknown controller version:", version)
 
         r = self.session.post(login_url, params)
 
@@ -173,7 +172,10 @@ class Controller(object):
     def get_client(self, mac):
         """Get details about a specific client"""
 
-        return self._read(self.api_url + 'stat/sta/' + mac)[0]
+        # stat/user/<mac> works better than stat/sta/<mac>
+        # stat/sta seems to be only active clients
+        # stat/user includes known but offline clients
+        return self._read(self.api_url + 'stat/user/' + mac)[0]
 
     def get_clients(self):
         """Return a list of all active clients, with significant information about each."""
@@ -318,7 +320,7 @@ class Controller(object):
             js['down'] = down_bandwidth
         if byte_quota:
             js['bytes'] = byte_quota
-        if ap_mac and self.version != 'v2':
+        if ap_mac:
             js['ap_mac'] = ap_mac
 
         return self._run_command(cmd, params=js)
