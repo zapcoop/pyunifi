@@ -9,17 +9,13 @@ elif sys.version_info[0] == 3:
     from subprocess import getoutput
 
 
-setup(name='unifi',
-      version='1.2.5',
+setup(name='pyunifi',
+      version='1.3',
       description='API towards Ubiquity Networks UniFi controller',
-      author='Jakob Borg',
-      author_email='jakob@nym.se',
-      url='https://github.com/calmh/unifi-api',
-      packages=['unifi'],
+      author='Caleb Dunn',
+      author_email='finish.06@gmail.com',
+      url='https://github.com/finish06/unifi-api',
+      packages=['pyunifi'],
       scripts=['unifi-low-snr-reconnect', 'unifi-ls-clients', 'unifi-save-statistics', 'unifi-log-roaming'],
-      classifiers=['Development Status :: 4 - Beta',
-          'Intended Audience :: Developers',
-          'License :: OSI Approved :: MIT License',
-          'Topic :: Software Development :: Libraries',
-          'Topic :: System :: Networking']
+      classifiers=[],
      )
