@@ -11,5 +11,5 @@ setup(name='pyunifi',
       packages=['pyunifi'],
       scripts=['unifi-low-snr-reconnect', 'unifi-ls-clients', 'unifi-save-statistics', 'unifi-log-roaming'],
       classifiers=[],
-      install_requires=['requests']
+      install_requires=['requests'],
      )
