@@ -6,6 +6,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
+
 class APIError(Exception):
     pass
 
@@ -55,8 +56,8 @@ class Controller(object):
 
         self.ssl_verify = ssl_verify
         # Disable the console warnings about an insecure connection
-        if ssl_verify == False:
-            requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+        if ssl_verify is False:
+            logging.captureWarnings(True)
 
         self.session = requests.Session()
         self.session.verify = ssl_verify
@@ -64,15 +65,16 @@ class Controller(object):
         log.debug('Controller for %s', self.url)
         self._login(version)
 
-    def __del__(self):
-        if self.session != None:
-            self._logout()
-
     def _jsondec(self, data):
         obj = json.loads(data)
-        if 'meta' in obj:
-            if obj['meta']['rc'] != 'ok':
-                raise APIError(obj['meta']['msg'])
+        try:
+            if 'meta' in obj:
+                if obj['meta']['rc'] != 'ok':
+                    raise APIError("Connection failure")  # (obj['meta']['msg'])
+        except APIError("Connection failure"):
+            print("HELP HELP HELP")
+        except ConnectionRefusedError:
+            print("CRAP CRAP CRAP")
         if 'data' in obj:
             return obj['data']
         return obj
@@ -88,8 +90,10 @@ class Controller(object):
     def _construct_api_path(self, version):
         """Returns valid base API path based on version given
 
-           The base API path for the URL is different depending on UniFi server version.
-           Default returns correct path for latest known stable working versions.
+           The base API path for the URL is different
+           depending on UniFi server version.
+           Default returns correct path for latest
+           known stable working versions.
 
         """
 
@@ -123,7 +127,7 @@ class Controller(object):
         r = self.session.post(login_url, params)
 
         if r.status_code != 200:
-            errorstr = "Failed to login: %d %s" % (r.status_code, r.reason) 
+            errorstr = "Failed to login: %d %s" % (r.status_code, r.reason)
             errorstr += '\n' + r.raw.read()
             log.error(errorstr)
             raise APIError(errorstr)
@@ -152,9 +156,9 @@ class Controller(object):
     def get_statistics_24h(self, endtime):
         """Return statistical data last 24h from time"""
 
-        js = { 'attrs': ["bytes", "num_sta", "time"], 
-               'start': int(endtime - 86400) * 1000,
-               'end': int(endtime - 3600) * 1000 }
+        js = {'attrs': ["bytes", "num_sta", "time"],
+              'start': int(endtime - 86400) * 1000,
+              'end': int(endtime - 3600) * 1000}
         return self._write(self.api_url + 'stat/report/hourly.site', params)
 
     def get_events(self):
@@ -163,9 +167,9 @@ class Controller(object):
         return self._read(self.api_url + 'stat/event')
 
     def get_aps(self):
-        """Return a list of all AP:s, with significant information about each."""
+        """Return a list of all APs, with significant information about each."""
 
-        #Set test to 0 instead of NULL
+        # Set test to 0 instead of NULL
         params = {'_depth': 2, 'test': 0}
         return self._read(self.api_url + 'stat/device', params)
 
@@ -178,12 +182,16 @@ class Controller(object):
         return self._read(self.api_url + 'stat/user/' + mac)[0]
 
     def get_clients(self):
-        """Return a list of all active clients, with significant information about each."""
-
+        """Return a list of all active clients,
+        with significant information about each.
+        """
         return self._read(self.api_url + 'stat/sta')
 
+
     def get_users(self):
-        """Return a list of all known clients, with significant information about each."""
+        """Return a list of all known clients,
+        with significant information about each.
+        """
 
         return self._read(self.api_url + 'list/user')
 
@@ -193,7 +201,9 @@ class Controller(object):
         return self._read(self.api_url + 'list/usergroup')
 
     def get_wlan_conf(self):
-        """Return a list of configured WLANs with their configuration parameters."""
+        """Return a list of configured WLANs
+        with their configuration parameters.
+        """
 
         return self._read(self.api_url + 'list/wlanconf')
 
