@@ -1,6 +1,6 @@
 import json
 import logging
-from time import time
+from time import time, sleep
 import requests
 
 
@@ -55,7 +55,7 @@ class Controller(object):
         self.api_url = self.url + self._construct_api_path(version)
 
         self.ssl_verify = ssl_verify
-        # Disable the console warnings about an insecure connection
+
         if ssl_verify is False:
             logging.captureWarnings(True)
 
@@ -70,18 +70,34 @@ class Controller(object):
         try:
             if 'meta' in obj:
                 if obj['meta']['rc'] != 'ok':
-                    raise APIError("Connection failure")  # (obj['meta']['msg'])
-        except APIError("Connection failure"):
-            print("HELP HELP HELP")
-        except ConnectionRefusedError:
-            print("CRAP CRAP CRAP")
-        if 'data' in obj:
-            return obj['data']
-        return obj
+                    raise RuntimeError(obj['meta']['msg'])
+            if 'data' in obj:
+                if 'client' in obj['data']:
+                    raise TypeError("Failed to connect to server")
+                else:
+                    return obj['data']
+            else:
+                return obj
+        # Pass error to _read function and reattempt login
+        except (RuntimeError, TypeError, ValueError) as err:
+            pass
 
     def _read(self, url, params=None):
-        r = self.session.get(url, params=params)
-        return self._jsondec(r.text)
+        try:
+            r = self.session.get(url, params=params)
+        except requests.exceptions.ConnectionError as err:
+            log.error(err)
+            sleep(60)
+            self._login(self.version)
+            r = self.session.get(url, params=params)
+
+        try:
+            return self._jsondec(r.text)
+        except (RuntimeError, TypeError, ValueError) as err:
+            log.error(err)
+            self._login(self.version)
+            r = self.session.get(url, params=params)
+            return self._jsondec(r.text)
 
     def _write(self, url, json=None):
         r = self.session.post(url, json=json)
@@ -186,7 +202,6 @@ class Controller(object):
         with significant information about each.
         """
         return self._read(self.api_url + 'stat/sta')
-
 
     def get_users(self):
         """Return a list of all known clients,
