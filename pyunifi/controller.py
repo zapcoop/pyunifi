@@ -59,12 +59,12 @@ class Controller(object):
         self.ssl_verify = ssl_verify
 
         if ssl_verify is False:
-            logging.captureWarnings(True)
+            log.captureWarnings(True)
 
         self.session = requests.Session()
         self.session.verify = ssl_verify
 
-        logging.debug('Controller for %s', self.url)
+        log.debug('Controller for %s', self.url)
         self._login(version)
 
     def _jsondec(self, data):
@@ -82,8 +82,8 @@ class Controller(object):
                 return obj
         # Pass error to _read function to reattempt gaining access
         except Exception as err:
-            logging.debug("Error decoding json data -- " +
-                          "raise error to _read function")
+            log.debug("Error decoding json data -- " +
+                      "raise error to _read function")
             raise
 
     def _read(self, url, params=None):
@@ -92,8 +92,8 @@ class Controller(object):
             try:
                 r = self.session.get(url, params=params)
             except requests.exceptions.ConnectionError as err:
-                logging.error(str(err))
-                logging.debug("Server likely not running")
+                log.error(str(err))
+                log.debug("Server likely not running")
                 self._login(self.version)
                 r = self.session.get(url, params=params)
             else:
@@ -103,14 +103,14 @@ class Controller(object):
             try:
                 return self._jsondec(r.text)
             except (RuntimeError, TypeError) as err:
-                logging.error(str(err) +
-                              " -- will reattempt login after 5 seconds")
+                log.error(str(err) +
+                          " -- will reattempt login after 5 seconds")
                 sleep(5)
                 self._login(self.version)
                 r = self.session.get(url, params=params)
                 return self._jsondec(r.text)
             except Exception as err:
-                logging.error(str(err))
+                log.error(str(err))
             else:
                 break
 
@@ -128,7 +128,6 @@ class Controller(object):
 
         """
 
-        V2_PATH = 'api/'
         V3_PATH = 'api/s/' + self.site_id + '/'
 
         if(version == 'v2'):
@@ -143,7 +142,7 @@ class Controller(object):
             raise APIError("Unknown controller version:", version)
 
     def _login(self, version):
-        logging.debug('login() as %s', self.username)
+        log.debug('login() as %s', self.username)
 
         params = {'username': self.username, 'password': self.password}
         login_url = self.url
@@ -158,23 +157,23 @@ class Controller(object):
 
         i = 0
         for i in range(5):
-            logging.debug("Server access attempt: " + str(i+1) + " of 5")
+            log.debug("Server access attempt: " + str(i+1) + " of 5")
             try:
                 r = self.session.post(login_url, params)
             except (requests.packages.urllib3.exceptions.NewConnectionError,
                     requests.exceptions.ConnectionError) as err:
-                logging.error(str(err) +
-                              " -- will retry to access " +
-                              "server after 60 seconds")
+                log.error(str(err) +
+                          " -- will retry to access " +
+                          "server after 60 seconds")
                 sleep(60)
             else:
                 i += 1
                 if r.status_code == 200:
                     break
-                logging.debug("Server response state code is not 200")
+                log.debug("Server response state code is not 200")
 
     def _logout(self):
-        logging.debug('logout()')
+        log.debug('logout()')
         self._write(self.url + 'logout')
 
     def get_alerts(self):
@@ -250,12 +249,12 @@ class Controller(object):
         return self._read(self.api_url + 'list/wlanconf')
 
     def _run_command(self, command, params={}, mgr='stamgr'):
-        logging.debug('_run_command(%s)', command)
+        log.debug('_run_command(%s)', command)
         params.update({'cmd': command})
         return self._write(self.api_url + 'cmd/' + mgr, json=params)
 
     def _mac_cmd(self, target_mac, command, mgr='stamgr'):
-        logging.debug('_mac_cmd(%s, %s)', target_mac, command)
+        log.debug('_mac_cmd(%s, %s)', target_mac, command)
         params = {'mac': target_mac}
         return self._run_command(command, params, mgr)
 
