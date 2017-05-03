@@ -4,8 +4,8 @@ from time import time, sleep
 import requests
 
 
-# log = logging.getLogger(__name__)
-logging.basicConfig(filename='example2.log', level=logging.ERROR)
+log = logging.getLogger(__name__)
+# logging.basicConfig(filename='example2.log', level=logging.DEBUG)
 
 
 class APIError(Exception):
@@ -43,7 +43,7 @@ class Controller(object):
             port     -- the port of the controller host
             version  -- the base version of the controller API [v4|v5]
             site_id  -- the site ID to connect to
-            ssl_verify -- Verify the controllers SSL certificate.  default=True,
+            ssl_verify -- Verify the controllers SSL certificate, default=True,
                           can also be False or "path/to/custom_cert.pem"
         """
 
@@ -80,29 +80,39 @@ class Controller(object):
                     return obj['data']
             else:
                 return obj
-        # Pass error to _read function and reattempt login.
+        # Pass error to _read function to reattempt gaining access
         except Exception as err:
-            logging.error("test" + str(err))
-            pass
+            logging.debug("Error decoding json data -- " +
+                          "raise error to _read function")
+            raise
 
     def _read(self, url, params=None):
         # Try block to handle the unifi server being offline.
-        try:
-            r = self.session.get(url, params=params)
-        except requests.exceptions.ConnectionError as err:
-            logging.error(str(err))
-            sleep(60)
-            self._login(self.version)
-            r = self.session.get(url, params=params)
+        while(True):
+            try:
+                r = self.session.get(url, params=params)
+            except requests.exceptions.ConnectionError as err:
+                logging.error(str(err))
+                logging.debug("Server likely not running")
+                self._login(self.version)
+                r = self.session.get(url, params=params)
+            else:
+                break
 
-        # Try block to controller being logged out.
-        try:
-            return self._jsondec(r.text)
-        except (RuntimeError, TypeError, ValueError) as err:
-            logging.error(str(err))
-            self._login(self.version)
-            r = self.session.get(url, params=params)
-            return self._jsondec(r.text)
+        while(True):
+            try:
+                return self._jsondec(r.text)
+            except (RuntimeError, TypeError) as err:
+                logging.error(str(err) +
+                              " -- will reattempt login after 5 seconds")
+                sleep(5)
+                self._login(self.version)
+                r = self.session.get(url, params=params)
+                return self._jsondec(r.text)
+            except Exception as err:
+                logging.error(str(err))
+            else:
+                break
 
     def _write(self, url, json=None):
         r = self.session.post(url, json=json)
@@ -141,17 +151,27 @@ class Controller(object):
         if version == 'v4' or version == 'v5':
             login_url += 'api/login'
             # XXX Why doesn't passing in the dict work?
-            params = "{'username':'" + self.username + "', 'password':'" + self.password + "'}"
+            params = "{'username':'" + self.username
+            params += "', 'password':'" + self.password + "'}"
         else:
             raise APIError("Unknown controller version:", version)
 
-        r = self.session.post(login_url, params)
-
-        if r.status_code != 200:
-            errorstr = "Failed to login: %d %s" % (r.status_code, r.reason)
-            errorstr += '\n' + r.raw.read()
-            logging.error(errorstr)
-            raise APIError(errorstr)
+        i = 0
+        for i in range(5):
+            logging.debug("Server access attempt: " + str(i+1) + " of 5")
+            try:
+                r = self.session.post(login_url, params)
+            except (requests.packages.urllib3.exceptions.NewConnectionError,
+                    requests.exceptions.ConnectionError) as err:
+                logging.error(str(err) +
+                              " -- will retry to access " +
+                              "server after 60 seconds")
+                sleep(60)
+            else:
+                i += 1
+                if r.status_code == 200:
+                    break
+                logging.debug("Server response state code is not 200")
 
     def _logout(self):
         logging.debug('logout()')
@@ -303,7 +323,8 @@ class Controller(object):
         answer = self._read(self.api_url + 'cmd/evtmgr', json=js)
 
     def create_backup(self):
-        """Ask controller to create a backup archive file, response contains the path to the backup file.
+        """Ask controller to create a backup archive file,
+           response contains the path to the backup file.
 
         Warning: This process puts significant load on the controller may
                  render it partially unresponsive for other requests.
