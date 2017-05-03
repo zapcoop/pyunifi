@@ -4,7 +4,8 @@ from time import time, sleep
 import requests
 
 
-log = logging.getLogger(__name__)
+# log = logging.getLogger(__name__)
+logging.basicConfig(filename='example2.log', level=logging.ERROR)
 
 
 class APIError(Exception):
@@ -63,7 +64,7 @@ class Controller(object):
         self.session = requests.Session()
         self.session.verify = ssl_verify
 
-        log.debug('Controller for %s', self.url)
+        logging.debug('Controller for %s', self.url)
         self._login(version)
 
     def _jsondec(self, data):
@@ -81,6 +82,7 @@ class Controller(object):
                 return obj
         # Pass error to _read function and reattempt login.
         except Exception as err:
+            logging.error("test" + str(err))
             pass
 
     def _read(self, url, params=None):
@@ -88,7 +90,7 @@ class Controller(object):
         try:
             r = self.session.get(url, params=params)
         except requests.exceptions.ConnectionError as err:
-            log.error(err)
+            logging.error(str(err))
             sleep(60)
             self._login(self.version)
             r = self.session.get(url, params=params)
@@ -97,7 +99,7 @@ class Controller(object):
         try:
             return self._jsondec(r.text)
         except (RuntimeError, TypeError, ValueError) as err:
-            log.error(err)
+            logging.error(str(err))
             self._login(self.version)
             r = self.session.get(url, params=params)
             return self._jsondec(r.text)
@@ -131,7 +133,7 @@ class Controller(object):
             raise APIError("Unknown controller version:", version)
 
     def _login(self, version):
-        log.debug('login() as %s', self.username)
+        logging.debug('login() as %s', self.username)
 
         params = {'username': self.username, 'password': self.password}
         login_url = self.url
@@ -148,11 +150,11 @@ class Controller(object):
         if r.status_code != 200:
             errorstr = "Failed to login: %d %s" % (r.status_code, r.reason)
             errorstr += '\n' + r.raw.read()
-            log.error(errorstr)
+            logging.error(errorstr)
             raise APIError(errorstr)
 
     def _logout(self):
-        log.debug('logout()')
+        logging.debug('logout()')
         self._write(self.url + 'logout')
 
     def get_alerts(self):
@@ -228,12 +230,12 @@ class Controller(object):
         return self._read(self.api_url + 'list/wlanconf')
 
     def _run_command(self, command, params={}, mgr='stamgr'):
-        log.debug('_run_command(%s)', command)
+        logging.debug('_run_command(%s)', command)
         params.update({'cmd': command})
         return self._write(self.api_url + 'cmd/' + mgr, json=params)
 
     def _mac_cmd(self, target_mac, command, mgr='stamgr'):
-        log.debug('_mac_cmd(%s, %s)', target_mac, command)
+        logging.debug('_mac_cmd(%s, %s)', target_mac, command)
         params = {'mac': target_mac}
         return self._run_command(command, params, mgr)
 
