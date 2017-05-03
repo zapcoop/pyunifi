@@ -31,7 +31,8 @@ class Controller(object):
 
     """
 
-    def __init__(self, host, username, password, port=8443, version='v5', site_id='default', ssl_verify=True):
+    def __init__(self, host, username, password, port=8443,
+                 version='v5', site_id='default', ssl_verify=True):
         """Create a Controller object.
 
         Arguments:
@@ -41,8 +42,8 @@ class Controller(object):
             port     -- the port of the controller host
             version  -- the base version of the controller API [v4|v5]
             site_id  -- the site ID to connect to
-            ssl_verify -- Verify the controllers SSL certificate.  default=True, can also be False or "path/to/custom_cert.pem
-"
+            ssl_verify -- Verify the controllers SSL certificate.  default=True,
+                          can also be False or "path/to/custom_cert.pem"
         """
 
         self.host = host
@@ -78,11 +79,12 @@ class Controller(object):
                     return obj['data']
             else:
                 return obj
-        # Pass error to _read function and reattempt login
-        except (RuntimeError, TypeError, ValueError) as err:
+        # Pass error to _read function and reattempt login.
+        except Exception as err:
             pass
 
     def _read(self, url, params=None):
+        # Try block to handle the unifi server being offline.
         try:
             r = self.session.get(url, params=params)
         except requests.exceptions.ConnectionError as err:
@@ -91,6 +93,7 @@ class Controller(object):
             self._login(self.version)
             r = self.session.get(url, params=params)
 
+        # Try block to controller being logged out.
         try:
             return self._jsondec(r.text)
         except (RuntimeError, TypeError, ValueError) as err:
@@ -183,7 +186,9 @@ class Controller(object):
         return self._read(self.api_url + 'stat/event')
 
     def get_aps(self):
-        """Return a list of all APs, with significant information about each."""
+        """Return a list of all APs,
+        with significant information about each.
+        """
 
         # Set test to 0 instead of NULL
         params = {'_depth': 2, 'test': 0}
@@ -312,7 +317,8 @@ class Controller(object):
         """Get a backup archive from a controller.
 
         Arguments:
-            target_file -- Filename or full path to download the backup archive to, should have .unf extension for restore.
+            target_file -- Filename or full path to download the backup archive
+            to, should have .unf extension for restore.
 
         """
         if not download_path:
@@ -324,7 +330,8 @@ class Controller(object):
         backupfile.write(str(r.content))
         backupfile.close()
 
-    def authorize_guest(self, guest_mac, minutes, up_bandwidth=None, down_bandwidth=None, byte_quota=None, ap_mac=None):
+    def authorize_guest(self, guest_mac, minutes, up_bandwidth=None,
+                        down_bandwidth=None, byte_quota=None, ap_mac=None):
         """
         Authorize a guest based on his MAC address.
 
