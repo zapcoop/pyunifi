@@ -3,7 +3,7 @@
 from distutils.core import setup
 
 setup(name='pyunifi',
-      version='2.0',
+      version='2.1',
       description='API towards Ubiquity Networks UniFi controller',
       author='Caleb Dunn',
       author_email='finish.06@gmail.com',
@@ -11,5 +11,5 @@ setup(name='pyunifi',
       packages=['pyunifi'],
       scripts=['unifi-low-snr-reconnect', 'unifi-ls-clients', 'unifi-save-statistics', 'unifi-log-roaming'],
       classifiers=[],
-      install_requires=['requests'],
-     )
+      install_requires=['requests', 'time', 'logging'],
+      )
