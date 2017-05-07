@@ -59,7 +59,7 @@ class Controller(object):
         self.ssl_verify = ssl_verify
 
         if ssl_verify is False:
-            log.captureWarnings(True)
+            logging.captureWarnings(True)
 
         self.session = requests.Session()
         self.session.verify = ssl_verify
