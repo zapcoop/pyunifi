@@ -1,15 +1,32 @@
 import json
-import logging
-from time import time, sleep
+import logging as log
 import requests
+import time
 
 
-log = logging.getLogger(__name__)
-# logging.basicConfig(filename='example2.log', level=logging.DEBUG)
+# log = logging.getLogger(__name__)
+log.basicConfig(filename='example.log', level=log.ERROR)
 
 
 class APIError(Exception):
     pass
+
+
+def retry_login(func, *args, **kwargs):
+    """To reattempt login if requests exception(s) occur at time of call"""
+    def wrapper(*args, **kwargs):
+        try:
+            try:
+                return func(*args, **kwargs)
+            except (requests.exceptions.RequestException,
+                    APIError) as err:
+                log.warn("Failed to perform %s due to %s" % (func, err))
+                controller = args[0]
+                controller._login(controller.version)
+                return func(*args, **kwargs)
+        except Exception as err:
+            raise APIError(err)
+    return wrapper
 
 
 class Controller(object):
@@ -59,7 +76,7 @@ class Controller(object):
         self.ssl_verify = ssl_verify
 
         if ssl_verify is False:
-            logging.captureWarnings(True)
+            log.captureWarnings(True)
 
         self.session = requests.Session()
         self.session.verify = ssl_verify
@@ -69,50 +86,19 @@ class Controller(object):
 
     def _jsondec(self, data):
         obj = json.loads(data)
-        try:
-            if 'meta' in obj:
-                if obj['meta']['rc'] != 'ok':
-                    raise RuntimeError(obj['meta']['msg'])
-            if 'data' in obj:
-                if 'client' in obj['data']:
-                    raise TypeError("Failed to connect to server")
-                else:
-                    return obj['data']
-            else:
-                return obj
-        # Pass error to _read function to reattempt gaining access
-        except Exception as err:
-            log.debug("Error decoding json data -- " +
-                      "raise error to _read function")
-            raise
+        if 'meta' in obj:
+            if obj['meta']['rc'] != 'ok':
+                raise APIError(obj['meta']['msg'])
+        if 'data' in obj:
+            return obj['data']
+        else:
+            return obj
 
+    @retry_login
     def _read(self, url, params=None):
         # Try block to handle the unifi server being offline.
-        while(True):
-            try:
-                r = self.session.get(url, params=params)
-            except requests.exceptions.ConnectionError as err:
-                log.error(str(err))
-                log.debug("Server likely not running")
-                self._login(self.version)
-                r = self.session.get(url, params=params)
-            else:
-                break
-
-        while(True):
-            try:
-                return self._jsondec(r.text)
-            except (RuntimeError, TypeError) as err:
-                log.error(str(err) +
-                          " -- will reattempt login after 5 seconds")
-                sleep(5)
-                self._login(self.version)
-                r = self.session.get(url, params=params)
-                return self._jsondec(r.text)
-            except Exception as err:
-                log.error(str(err))
-            else:
-                break
+        r = self.session.get(url, params=params)
+        return self._jsondec(r.text)
 
     def _write(self, url, json=None):
         r = self.session.post(url, json=json)
@@ -155,22 +141,9 @@ class Controller(object):
         else:
             raise APIError("Unknown controller version:", version)
 
-        i = 0
-        for i in range(5):
-            log.debug("Server access attempt: " + str(i+1) + " of 5")
-            try:
-                r = self.session.post(login_url, params)
-            except (requests.packages.urllib3.exceptions.NewConnectionError,
-                    requests.exceptions.ConnectionError) as err:
-                log.error(str(err) +
-                          " -- will retry to access " +
-                          "server after 60 seconds")
-                sleep(60)
-            else:
-                i += 1
-                if r.status_code == 200:
-                    break
-                log.debug("Server response state code is not 200")
+        r = self.session.post(login_url, params)
+
+        if r.status_code is not 200:
 
     def _logout(self):
         log.debug('logout()')
