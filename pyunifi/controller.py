@@ -144,6 +144,7 @@ class Controller(object):
         r = self.session.post(login_url, params)
 
         if r.status_code is not 200:
+            raise APIError("Login failed - status code: %i" % r.status_code)
 
     def _logout(self):
         log.debug('logout()')
