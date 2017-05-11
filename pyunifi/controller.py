@@ -1,11 +1,14 @@
 import json
-import logging as log
+import logging
 import requests
 import time
+import warnings
 
-
-# log = logging.getLogger(__name__)
-log.basicConfig(filename='example.log', level=log.ERROR)
+"""For testing purposes:
+logging.basicConfig(filename='pyunifi.log', level=logging.WARN,
+                    format='%(asctime)s %(message)s')
+"""
+log = logging.getLogger(__name__)
 
 
 class APIError(Exception):
@@ -76,7 +79,8 @@ class Controller(object):
         self.ssl_verify = ssl_verify
 
         if ssl_verify is False:
-            log.captureWarnings(True)
+            warnings.simplefilter("default", category=requests.packages.
+                                  urllib3.exceptions.InsecureRequestWarning)
 
         self.session = requests.Session()
         self.session.verify = ssl_verify
