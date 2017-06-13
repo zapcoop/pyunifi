@@ -68,7 +68,7 @@ API Example
 -----------
 
 ```python
-from unifi.controller import Controller
+from pyunifi.controller import Controller
 c = Controller('192.168.1.99', 'admin', 'p4ssw0rd')
 for ap in c.get_aps():
 	print 'AP named %s with MAC %s' % (ap.get('name'), ap['mac'])
@@ -131,7 +131,7 @@ Create a Controller object.
  - `port`		-- the port of the controller host
  - `version`	-- the base version of the controller API [v2|v3]
  - `site_id`	-- the site ID to connect to (UniFi >= 3.x)
-
+ - `ssl_verify`	-- Verify the controllers SSL certificate, default=True, can also be False or "path/to/custom_cert.pem
 ### `block_client(self, mac)`
 
 Add a client to the block list.
