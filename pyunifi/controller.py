@@ -3,6 +3,8 @@ import logging
 import requests
 import time
 import warnings
+import urllib.parse
+
 
 """For testing purposes:
 logging.basicConfig(filename='pyunifi.log', level=logging.WARN,
@@ -163,7 +165,7 @@ class Controller(object):
         """Return a list of Alerts unarchived."""
 
         js = json.dumps({'_sort': '-time', 'archived': False})
-        params = urllib.urlencode({'json': js})
+        params = urllib.parse.urlencode({'json': js})
         return self._read(self.api_url + 'list/alarm', params)
 
     def get_statistics_last_24h(self):
@@ -174,9 +176,10 @@ class Controller(object):
     def get_statistics_24h(self, endtime):
         """Return statistical data last 24h from time"""
 
-        js = {'attrs': ["bytes", "num_sta", "time"],
-              'start': int(endtime - 86400) * 1000,
-              'end': int(endtime - 3600) * 1000}
+        params = {
+            'attrs': ["bytes", "num_sta", "time"],
+            'start': int(endtime - 86400) * 1000,
+            'end': int(endtime - 3600) * 1000}
         return self._write(self.api_url + 'stat/report/hourly.site', params)
 
     def get_events(self):
@@ -297,7 +300,7 @@ class Controller(object):
         """Archive all Alerts
         """
         js = {'cmd': 'archive-all-alarms'}
-        answer = self._read(self.api_url + 'cmd/evtmgr', json=js)
+        self._read(self.api_url + 'cmd/evtmgr', json=js)
 
     def create_backup(self):
         """Ask controller to create a backup archive file,
