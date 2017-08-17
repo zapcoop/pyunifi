@@ -222,6 +222,24 @@ class Controller(object):
 
         return self._read(self.api_url + 'list/usergroup')
 
+    def get_sysinfo(self):
+        """Return basic system informations."""
+
+        return self._read(self.api_url + 'stat/sysinfo')
+
+    def get_sites(self):
+        """Return a list of all sites,
+        with their UID and description"""
+
+        if(self.version == 'v2'):
+            return None
+        elif(self.version == 'v3'):
+            js = json.dumps({'cmd': 'get-sites'})
+            params = urllib.urlencode({'json': js})
+            return self._read(self.api_url + 'cmd/sitemgr', params)
+        else:
+            return self._read(self.url + 'api/self/sites')
+
     def get_wlan_conf(self):
         """Return a list of configured WLANs
         with their configuration parameters.
