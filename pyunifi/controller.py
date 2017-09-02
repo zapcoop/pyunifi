@@ -222,6 +222,17 @@ class Controller(object):
 
         return self._read(self.api_url + 'list/usergroup')
 
+    def get_sysinfo(self):
+        """Return basic system informations."""
+
+        return self._read(self.api_url + 'stat/sysinfo')
+
+    def get_sites(self):
+        """Return a list of all sites,
+        with their UID and description"""
+        
+        return self._read(self.url + 'api/self/sites')
+
     def get_wlan_conf(self):
         """Return a list of configured WLANs
         with their configuration parameters.
