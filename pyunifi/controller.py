@@ -1,9 +1,10 @@
 import json
 import logging
 import requests
+import shutil
 import time
-import warnings
 import urllib.parse
+import warnings
 
 
 """For testing purposes:
@@ -25,9 +26,9 @@ def retry_login(func, *args, **kwargs):
                 return func(*args, **kwargs)
             except (requests.exceptions.RequestException,
                     APIError) as err:
-                log.warn("Failed to perform %s due to %s" % (func, err))
+                log.warning("Failed to perform %s due to %s" % (func, err))
                 controller = args[0]
-                controller._login(controller.version)
+                controller._login()
                 return func(*args, **kwargs)
         except Exception as err:
             raise APIError(err)
@@ -56,18 +57,17 @@ class Controller(object):
 
     def __init__(self, host, username, password, port=8443,
                  version='v5', site_id='default', ssl_verify=True):
-        """Create a Controller object.
-
-        Arguments:
-            host     -- the address of the controller host; IP or name
-            username -- the username to log in with
-            password -- the password to log in with
-            port     -- the port of the controller host
-            version  -- the base version of the controller API [v4|v5]
-            site_id  -- the site ID to connect to
-            ssl_verify -- Verify the controllers SSL certificate, default=True,
-                          can also be False or "path/to/custom_cert.pem"
         """
+        :param host: the address of the controller host; IP or name
+        :param username: the username to log in with
+        :param password: the password to log in with
+        :param port: the port of the controller host
+        :param version: the base version of the controller API [v4|v5]
+        :param site_id: the site ID to connect to
+        :param ssl_verify: Verify the controllers SSL certificate, can also be "path/to/custom_cert.pem"
+        """
+        if float(version[1:]) < 4:
+            raise APIError("%s controllers no longer supported" % version)
 
         self.host = host
         self.port = port
@@ -76,7 +76,7 @@ class Controller(object):
         self.password = password
         self.site_id = site_id
         self.url = 'https://' + host + ':' + str(port) + '/'
-        self.api_url = self.url + self._construct_api_path(version)
+        self.api_url = self.url + 'api/s/' + site_id + '/'
 
         self.ssl_verify = ssl_verify
 
@@ -88,9 +88,10 @@ class Controller(object):
         self.session.verify = ssl_verify
 
         log.debug('Controller for %s', self.url)
-        self._login(version)
+        self._login()
 
-    def _jsondec(self, data):
+    @staticmethod
+    def _jsondec(data):
         obj = json.loads(data)
         if 'meta' in obj:
             if obj['meta']['rc'] != 'ok':
@@ -106,71 +107,42 @@ class Controller(object):
         r = self.session.get(url, params=params)
         return self._jsondec(r.text)
 
-    def _write(self, url, json=None):
-        r = self.session.post(url, json=json)
+    def _api_read(self, url, params=None):
+        return self._read(self.api_url + url, params)
+
+    @retry_login
+    def _write(self, url, params=None):
+        r = self.session.post(url, json=params)
         return self._jsondec(r.text)
 
-    def _construct_api_path(self, version):
-        """Returns valid base API path based on version given
+    def _api_write(self, url, params=None):
+        return self._write(self.api_url + url, params)
 
-           The base API path for the URL is different
-           depending on UniFi server version.
-           Default returns correct path for latest
-           known stable working versions.
-
-        """
-
-        V3_PATH = 'api/s/' + self.site_id + '/'
-
-        if(version == 'v2'):
-            raise APIError("v2 controllers no longer supported")
-        if(version == 'v3'):
-            raise APIError("v3 controllers no longer supported")
-        if(version == 'v4'):
-            return V3_PATH
-        if(version == 'v5'):
-            return V3_PATH
-        else:
-            raise APIError("Unknown controller version:", version)
-
-    def _login(self, version):
+    def _login(self):
         log.debug('login() as %s', self.username)
 
-        params = {'username': self.username, 'password': self.password}
-        login_url = self.url
-
-        if version == 'v4' or version == 'v5':
-            login_url += 'api/login'
-            # XXX Why doesn't passing in the dict work?
-            params = "{'username':'" + self.username
-            params += "', 'password':'" + self.password + "'}"
-        else:
-            raise APIError("Unknown controller version:", version)
-
+        # XXX Why doesn't passing in the dict work?
+        params = str({'username': self.username, 'password': self.password})
+        login_url = self.url + 'api/login'
+        
         r = self.session.post(login_url, params)
-
         if r.status_code is not 200:
             raise APIError("Login failed - status code: %i" % r.status_code)
 
     def _logout(self):
         log.debug('logout()')
-        self._write(self.url + 'logout')
+        self._api_write('logout')
 
     def get_alerts(self):
         """Return a list of all Alerts."""
-
-        return self._read(self.api_url + 'list/alarm')
+        return self._api_write('stat/alarm')
 
     def get_alerts_unarchived(self):
         """Return a list of Alerts unarchived."""
-
-        js = json.dumps({'_sort': '-time', 'archived': False})
-        params = urllib.parse.urlencode({'json': js})
-        return self._read(self.api_url + 'list/alarm', params)
+        return self._api_write('stat/alarm', params={'archived': False})
 
     def get_statistics_last_24h(self):
         """Returns statistical data of the last 24h"""
-
         return self.get_statistics_24h(time())
 
     def get_statistics_24h(self, endtime):
@@ -184,17 +156,15 @@ class Controller(object):
 
     def get_events(self):
         """Return a list of all Events."""
-
-        return self._read(self.api_url + 'stat/event')
+        return self._api_read('stat/event')
 
     def get_aps(self):
         """Return a list of all APs,
         with significant information about each.
         """
-
         # Set test to 0 instead of NULL
         params = {'_depth': 2, 'test': 0}
-        return self._read(self.api_url + 'stat/device', params)
+        return self._api_read('stat/device', params)
 
     def get_client(self, mac):
         """Get details about a specific client"""
@@ -202,48 +172,43 @@ class Controller(object):
         # stat/user/<mac> works better than stat/sta/<mac>
         # stat/sta seems to be only active clients
         # stat/user includes known but offline clients
-        return self._read(self.api_url + 'stat/user/' + mac)[0]
+        return self._api_read('stat/user/' + mac)[0]
 
     def get_clients(self):
         """Return a list of all active clients,
         with significant information about each.
         """
-        return self._read(self.api_url + 'stat/sta')
+        return self._api_read('stat/sta')
 
     def get_users(self):
         """Return a list of all known clients,
         with significant information about each.
         """
-
-        return self._read(self.api_url + 'list/user')
+        return self._api_read('list/user')
 
     def get_user_groups(self):
         """Return a list of user groups with its rate limiting settings."""
-
-        return self._read(self.api_url + 'list/usergroup')
+        return self._api_read('list/usergroup')
 
     def get_sysinfo(self):
         """Return basic system informations."""
-
-        return self._read(self.api_url + 'stat/sysinfo')
+        return self._api_read('stat/sysinfo')
 
     def get_sites(self):
         """Return a list of all sites,
         with their UID and description"""
-        
         return self._read(self.url + 'api/self/sites')
 
     def get_wlan_conf(self):
         """Return a list of configured WLANs
         with their configuration parameters.
         """
-
-        return self._read(self.api_url + 'list/wlanconf')
+        return self._api_read('list/wlanconf')
 
     def _run_command(self, command, params={}, mgr='stamgr'):
         log.debug('_run_command(%s)', command)
         params.update({'cmd': command})
-        return self._write(self.api_url + 'cmd/' + mgr, json=params)
+        return self._write(self.api_url + 'cmd/' + mgr, params=params)
 
     def _mac_cmd(self, target_mac, command, mgr='stamgr'):
         log.debug('_mac_cmd(%s, %s)', target_mac, command)
@@ -253,22 +218,16 @@ class Controller(object):
     def block_client(self, mac):
         """Add a client to the block list.
 
-        Arguments:
-            mac -- the MAC address of the client to block.
-
+        :param mac: the MAC address of the client to block.
         """
-
-        self._mac_cmd(mac, 'block-sta')
+        return self._mac_cmd(mac, 'block-sta')
 
     def unblock_client(self, mac):
         """Remove a client from the block list.
 
-        Arguments:
-            mac -- the MAC address of the client to unblock.
-
+        :param mac: the MAC address of the client to unblock.
         """
-
-        self._mac_cmd(mac, 'unblock-sta')
+        return self._mac_cmd(mac, 'unblock-sta')
 
     def disconnect_client(self, mac):
         """Disconnect a client.
@@ -276,109 +235,142 @@ class Controller(object):
         Disconnects a client, forcing them to reassociate. Useful when the
         connection is of bad quality to force a rescan.
 
-        Arguments:
-            mac -- the MAC address of the client to disconnect.
-
+        :param mac: the MAC address of the client to disconnect.
         """
-
-        self._mac_cmd(mac, 'kick-sta')
+        return self._mac_cmd(mac, 'kick-sta')
 
     def restart_ap(self, mac):
         """Restart an access point (by MAC).
 
-        Arguments:
-            mac -- the MAC address of the AP to restart.
-
+        :param mac: the MAC address of the AP to restart.
         """
-
-        self._mac_cmd(mac, 'restart', 'devmgr')
+        return self._mac_cmd(mac, 'restart', 'devmgr')
 
     def restart_ap_name(self, name):
         """Restart an access point (by name).
 
-        Arguments:
-            name -- the name address of the AP to restart.
-
+        :param name: the name address of the AP to restart.
         """
-
         if not name:
             raise APIError('%s is not a valid name' % str(name))
         for ap in self.get_aps():
             if ap.get('state', 0) == 1 and ap.get('name', None) == name:
-                self.restart_ap(ap['mac'])
+                return self.restart_ap(ap['mac'])
 
     def archive_all_alerts(self):
-        """Archive all Alerts
-        """
-        js = {'cmd': 'archive-all-alarms'}
-        self._read(self.api_url + 'cmd/evtmgr', json=js)
+        """Archive all Alerts"""
+        return self._run_command('archive-all-alarms', mgr='evtmgr')
 
     def create_backup(self):
-        """Ask controller to create a backup archive file,
-           response contains the path to the backup file.
+        """Ask controller to create a backup archive file
 
-        Warning: This process puts significant load on the controller may
-                 render it partially unresponsive for other requests.
+        ..warning:
+            This process puts significant load on the controller
+            and may render it partially unresponsive for other requests.
+
+        :return: URL path to backup file
         """
-
-        js = {'cmd': 'backup'}
-        r = self.session.post(self.api_url + 'cmd/system', json=js)
-
-        data = self._jsondec(r.text)
-        return data[0]['url']
+        res = self._run_command('backup', mgr='system')
+        return res[0]['url']
 
     def get_backup(self, download_path=None, target_file='unifi-backup.unf'):
-        """Get a backup archive from a controller.
-
-        Arguments:
-            target_file -- Filename or full path to download the backup archive
-            to, should have .unf extension for restore.
-
+        """
+        :param download_path: path to backup; if None is given one will be created
+        :param target_file: Filename or full path to download the backup archive to,
+                            should have .unf extension for restore.
         """
         if not download_path:
             download_path = self.create_backup()
 
-        r = self.session.get(self.url + download_path)
-
-        backupfile = open(target_file, 'w')
-        backupfile.write(str(r.content))
-        backupfile.close()
+        r = self.session.get(self.url + download_path, stream=True)
+        with open(target_file, 'wb') as _backfh:
+            return shutil.copyfileobj(r.raw, _backfh)
 
     def authorize_guest(self, guest_mac, minutes, up_bandwidth=None,
                         down_bandwidth=None, byte_quota=None, ap_mac=None):
         """
         Authorize a guest based on his MAC address.
 
-        Arguments:
-            guest_mac     -- the guest MAC address : aa:bb:cc:dd:ee:ff
-            minutes       -- duration of the authorization in minutes
-            up_bandwith   -- up speed allowed in kbps (optional)
-            down_bandwith -- down speed allowed in kbps (optional)
-            byte_quota    -- quantity of bytes allowed in MB (optional)
-            ap_mac        -- access point MAC address (UniFi >= 3.x) (optional)
+        :param guest_mac: the guest MAC address: 'aa:bb:cc:dd:ee:ff'
+        :param minutes: duration of the authorization in minutes
+        :param up_bandwidth: up speed allowed in kbps
+        :param down_bandwidth: down speed allowed in kbps
+        :param byte_quota: quantity of bytes allowed in MB
+        :param ap_mac: access point MAC address
         """
         cmd = 'authorize-guest'
-        js = {'mac': guest_mac, 'minutes': minutes}
+        params = {'mac': guest_mac, 'minutes': minutes}
 
         if up_bandwidth:
-            js['up'] = up_bandwidth
+            params['up'] = up_bandwidth
         if down_bandwidth:
-            js['down'] = down_bandwidth
+            params['down'] = down_bandwidth
         if byte_quota:
-            js['bytes'] = byte_quota
+            params['bytes'] = byte_quota
         if ap_mac:
-            js['ap_mac'] = ap_mac
-
-        return self._run_command(cmd, params=js)
+            params['ap_mac'] = ap_mac
+        return self._run_command(cmd, params=params)
 
     def unauthorize_guest(self, guest_mac):
         """
         Unauthorize a guest based on his MAC address.
 
-        Arguments:
-            guest_mac -- the guest MAC address : aa:bb:cc:dd:ee:ff
+        :param guest_mac: the guest MAC address: 'aa:bb:cc:dd:ee:ff'
         """
         cmd = 'unauthorize-guest'
-        js = {'mac': guest_mac}
+        params = {'mac': guest_mac}
+        return self._run_command(cmd, params=params)
 
-        return self._run_command(cmd, params=js)
+    def get_firmware(self, cached=True, available=True, known=False, site=False):
+        """
+        Return a list of available/cached firmware versions
+
+        :param cached: Return cached firmwares
+        :param available: Return available (and not cached) firmwares
+        :param known: Return only firmwares for known devices
+        :param site: Return only firmwares for on-site devices
+        :return: List of firmware dicts
+        """
+        res = []
+        if cached:
+            res.extend(self._run_command('list-cached', mgr='firmware'))
+        if available:
+            res.extend(self._run_command('list-available', mgr='firmware'))
+
+        if known:
+            res = [fw for fw in res if fw['knownDevice']]
+        if site:
+            res = [fw for fw in res if fw['siteDevice']]
+        return res
+
+    def cache_firmware(self, version, device):
+        """
+        Cache the firmware on the UniFi Controller
+
+        .. warning:: Caching one device might very well cache others, as they're on shared platforms
+
+        :param version: version to cache
+        :param device: device model to cache (e.g. BZ2)
+        :return: True/False
+        """
+        return self._run_command(
+            'download', mgr='firmware',
+            params={'device': device, 'version': version})[0]['result']
+
+    def remove_firmware(self, version, device):
+        """
+        Remove cached firmware from the UniFi Controller
+
+        .. warning:: Removing one device's firmware might very well remove others, as they're on shared platforms
+
+        :param version: version to cache
+        :param device: device model to cache (e.g. BZ2)
+        :return: True/false
+        """
+        return self._run_command(
+            'remove', mgr='firmware',
+            params={'device': device, 'version': version})[0]['result']
+
+    def get_tag(self):
+        """Get all tags and their member MACs"""
+        return self._api_read('rest/tag')
