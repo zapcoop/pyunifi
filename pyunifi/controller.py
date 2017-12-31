@@ -3,7 +3,6 @@ import logging
 import requests
 import shutil
 import time
-import urllib.parse
 import warnings
 
 
