@@ -3,7 +3,6 @@ import logging
 import requests
 import shutil
 import time
-import urllib.parse
 import warnings
 
 
@@ -81,7 +80,7 @@ class Controller(object):
         self.ssl_verify = ssl_verify
 
         if ssl_verify is False:
-            warnings.simplefilter("default", category=requests.packages.
+            warnings.simplefilter("ignore", category=requests.packages.
                                   urllib3.exceptions.InsecureRequestWarning)
 
         self.session = requests.Session()
